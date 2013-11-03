@@ -27,5 +27,8 @@ subtest 'simple',sub{
     is($charset, 'windows-1252');
 
     $charset = $detector->detect(text => "\xd5\xee\xf0\xee\xf8", lang => 'ru');
-    is($charset, 'windows-1252');
+    is($charset, 'windows-1251');
+
+    my($charsets,$meta) = $detector->detect(text => "\xd5\xee\xf0\xee\xf8", lang => 'ru');
+    is_deeply($charsets, ['windows-1251','x-mac-cyrillic']);
 };
