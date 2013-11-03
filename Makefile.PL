@@ -8,7 +8,7 @@ WriteMakefile(
     AUTHOR              => q{Lyle Hopkins <webmaster@cosmicperl.com>},
     VERSION_FROM        => 'lib/Encode/Detect/Upload.pm',
     ABSTRACT_FROM       => 'lib/Encode/Detect/Upload.pm',
-    ($ExtUtils::MakeMaker::VERSION >= 6.3002
+    ($ExtUtils::MakeMaker::VERSION ge 6.3002
       ? ('LICENSE'=> 'perl')
       : ()),
     PL_FILES            => {},

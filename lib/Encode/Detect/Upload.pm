@@ -1,8 +1,10 @@
 package Encode::Detect::Upload;
 
+our $VERSION=0.01;
+
 =head1 NAME
 
-Encode::Detect::Upload - Attempt to guess users locale encoding from IP,
+Encode::Detect::Upload - Attempt to guess user's locale encoding from IP,
 HTTP_ACCEPT_LANGUAGE and HTTP_USER_AGENT
 
 =head1 SYNOPSIS
@@ -46,26 +48,28 @@ my $country_lang = \%Encode::Detect::Upload::Data::country_lang;
 my $lang_charset = \%Encode::Detect::Upload::Data::lang_charset;
 
 # Try to load some other modules
-my $has_ipcountry = 1;
-eval 'use IP::Country';
-$has_ipcountry = 0 if $@;
+my $has_ipcountry = eval { require IP::Country; };
 
-my $has_geoip = 1;
-eval 'use Geo::IP';
-$has_geoip = 0 if $@;
+my $has_geoip = !$has_ipcountry && eval { require Geo::IP; };
 
-my $has_detect = 1;
-eval 'use Encode::Detect::Detector qw()';
-$has_detect = 0 if $@;
+my $has_detect = eval { require Encode::Detect::Detector; };
 
 
 =head2 Methods
 
-=over 12
+=over 4
 
-=item C<new>
+=item new()
 
-Returns a new detection object.
+=item new(\%params)
+
+=item new(%params)
+
+Returns a new detection object. Parameters may be passed either as
+key/value pairs or as a hash references. The following parameters are
+recognised:
+
+    die_on_missing    Whether missing method parameters cause fatal errors (default: true)
 
 =cut
 
@@ -95,11 +99,14 @@ sub new {
 }
 
 
-=item C<get_os>
+=item get_os()
 
-Requires the HTTP_USER_AGENT string which can be passed, otherwise it attempts
-to use C<$ENV{HTTP_USER_AGENT}>. Dies if it cannot find a user_agent string.
-Returns either "Windows", "Linux", "Macintosh" or undefined if no match was
+=item get_os($user_agent_string)
+
+Extracts the operating system name from the supplied User-Agent header value,
+or C<$ENV{HTTP_USER_AGENT}> if not supplied. Dies if no user agent string
+is available.
+Returns either C<Windows>, C<Linux>, C<Macintosh> or undefined if no match was
 made.
 
 =cut
@@ -108,19 +115,26 @@ sub get_os {
     my $self = shift;
     my $agent = shift;
     $agent ||= $ENV{HTTP_USER_AGENT};
-    croak( 'No USER_AGENT string passed, and $ENV{HTTP_USER_AGENT} is empty' ) unless $agent || $self->{die_on_missing} == 0;
+    croak( 'No USER_AGENT string passed, and $ENV{HTTP_USER_AGENT} is empty' )
+      if !$agent && !$self->{die_on_missing};
+
     # Basic regexps for matching
     return 'Windows' if $agent =~ /Windows/;
-    return 'Macintosh' if $agent =~ /\W(Macintosh|Mac)\W/;
+    return 'Macintosh' if $agent =~ /\b(?:Macintosh|Mac)\b/;
     return 'Linux' if $agent =~ /Linux/;
     return undef;
 }
 
 
-=item C<get_country>
+=item get_country()
 
-Requires the users IP which can be passed, otherwise it attempts to use
-C<$ENV{REMOTE_ADDR}>. Returns the ISO 2 character country code.
+=item get_country($ip_address)
+
+=item get_country($ip_address,$geo_ip_data_filename)
+
+Looks up the user's country from the supplied IP address, or C<$ENV{REMOTE_ADDR}
+by default. Dies if neither of L<IP::Country> or L<Geo::IP> is installed.
+Returns the ISO 2 character country code.
 
 =cut
 
@@ -130,14 +144,14 @@ sub get_country {
     my $ip = shift;
     $ip ||= $ENV{REMOTE_ADDR};
     croak( 'No IP passed, and $ENV{REMOTE_ADDR} is empty' ) unless $ip;
-    my $ip_match = qr/^(\d|[01]?\d\d|2[0-4]\d|25[0-5])\.(\d|[01]?\d\d|2[0-4]\d|25[0-5])\.(\d|[01]?\d\d|2[0-4]\d|25[0-5])\.(\d|[01]?\d\d|2[0-4]\d|25[0-5])$/o;
-    croak( "$ip is not a valid IP" ) unless $ip =~ $ip_match;
+    $ip=~/\A(?:0|[0-9]\d*)(?:\.(?:0|[1-9]\d*)){3}\z/ && !grep $_>255,split /\./,$ip
+      or croak( "$ip is not a valid IP" );
 
     # Use the available IP -> Country DB
     if ( $has_ipcountry ) {
-        my $reg = IP::Country->new();
+        my $reg = IP::Country->new(); # XXX Cache?
         my $country = $reg->inet_atocc($ip);
-        $country = undef if $country = '**';
+        $country = undef if $country eq '**';
         return lc $country;
     }
     if ( $has_geoip ) {
@@ -155,46 +169,60 @@ sub get_country {
 }
 
 
-=item C<get_country_lang>
+=item get_country_lang($iso_2code)
 
-Requires the ISO 2 character country code. Returns either a single language code
-or list of language codes depending on calling context.
+Returns the language tag(s) associated with the supplied country code.
+In scalar context returns the primary language tag; in list context
+returns all associated language tags. Dies if the supplied country
+code is undefined. Returns undef if no matching country is found.
+
+Language tags are defined in section 3.10 or RFC 2616, and can be 2
+or 3 letters, optionally followed by a series of subtags, separated
+by dashes.
 
 =cut
 
 sub get_country_lang {
     my $self = shift;
-    my $country = lc shift;
-    croak( 'No country passed' ) unless defined $country;
-    return undef unless ref $country_lang->{$country};
+    my $country_code = lc shift;
+    croak( 'No country passed' ) unless defined $country_code;
+    my $country = $country_lang->{$country_code}
+      or return;
     if ( wantarray ) {
-        return @{ $country_lang->{$country}->{languages} };
+        return @{ $country->{languages} };
     }
     else {
-        return $country_lang->{$country}->{languages}->[0];
+        return $country->{languages}->[0];
     }
 }
 
 
-=item C<get_country_name>
+=item get_country_name($iso_2code)
 
-Requires the ISO 2 character country code. Returns the countries name.
+Returns the name of the country specified by the suppied 2 letter code.
+Dies if no country is specified.
 
 =cut
 
 sub get_country_name {
     my $self = shift;
-    my $country = lc shift;
-    croak( 'No country passed' ) unless defined $country;
-    return $country_lang->{$country}->{name};
+    my $country_code = lc shift;
+    croak( 'No country passed' ) unless defined $country_code;
+    my $country = $country_lang->{$country_code}
+      or return undef;
+    return $country->{name};
 }
 
 
-=item C<get_accept_lang>
+=item get_accept_lang()
 
-Requires the HTTP_ACCEPT_LANGUAGE string from the browser, otherwise it attempts
-to use C<$ENV{HTTP_ACCEPT_LANGUAGE}>. Returns either a single language code or
-list of language codes depending on calling context.
+=item get_accept_lang($accept_lang_string)
+
+Returns the accepted language tag(s) described by the supplied Accept-Language
+header value, or from C<$ENV{HTTP_ACCEPT_LANGUAGE}> if not supplied. Dies if no
+header value is available.
+In scalar context, returns the first language tag listed. In list context,
+returns all tags, in the order they are listed in the header value.
 
 =cut
 
@@ -202,7 +230,8 @@ sub get_accept_lang {
     my $self = shift;
     my $accept = shift;
     $accept ||= $ENV{HTTP_ACCEPT_LANGUAGE};
-    croak( 'No ACCEPT_LANGUAGE string passed, and $ENV{HTTP_ACCEPT_LANGUAGE} is empty' ) unless $accept || $self->{die_on_missing} == 0;
+    croak( 'No ACCEPT_LANGUAGE string passed, and $ENV{HTTP_ACCEPT_LANGUAGE} is empty' )
+      if !$accept && $self->{die_on_missing};
     # We are going to ignore q and assume the order is accurate... might not be the best policy
     my @langs;
     my %seen;
@@ -222,26 +251,31 @@ sub get_accept_lang {
 }
 
 
-=item C<get_lang_name>
+=item get_lang_name($language_code)
 
-Requires the ISO 2 character language code (sometimes 3 character for when a 2
-character doesn't exist). Returns the languages name.
+Returns the name of the language specified by the supplied 2 or 3 letter
+ISO-639 language code. Dies if no language code is supplied.
 
 =cut
 
 sub get_lang_name {
     my $self = shift;
-    my $lang = lc shift;
-    croak( 'No language passed' ) unless defined $lang;
-    return undef unless ref $lang_charset->{$lang};
-    return $lang_charset->{$lang}->{name};
+    my $lang_code = lc shift;
+    croak( 'No language passed' ) unless defined $lang_code;
+    my $language = $lang_charset->{$lang_code}
+      or return undef;
+    return $language->{name};
 }
 
 
-=item C<get_lang_list>
+=item get_lang_list($language_tag)
 
-Requires the ISO 2 character language code (sometimes 3 character for when a 2
-character doesn't exist). Returns a list of related language codes.
+Returns the list of language tags which could be used for matching the supplied
+language tag. This will always include the supplied language tag. If the supplied
+tag includes a C<cyrl> or C<latn> subtag, or is a primary tag for which C<cyrl>
+or C<latn> subtags are available, all such subtags will be returned. If the
+supplied tag contains any subtags, the primary tag will also be returned.
+Dies is no language tag is supplied.
 
 =cut
 
@@ -252,37 +286,25 @@ sub get_lang_list {
     my @lang_list = ($lang);
     my %lang_seen = ( $lang => 1 );
 
-    # Check if the inital lang is a cyrl/latn version
-    my %latncryl = ( latn => 'cyrl', cyrl => 'latn' );
-    if ( $lang =~ /^(.+)-(cyrl|latn)$/ ) {
-        if ( $lang_charset->{"$1-$latncryl{$2}"} ) {
-            push( @lang_list, "$1-$latncryl{$2}" );
-            $lang_seen{"$1-$latncryl{$2}"}++;
-        }
-        $lang = $1;
+    # Check for Cyrillic/Latin versions
+    $lang =~ s/-(?:cyrl|latn)\z//;
+    for my $sublang ("$lang-latn","$lang-cyrl") {
+	$lang_charset->{$sublang} or next;
+	$lang_seen{$sublang}++
+	    or push @lang_list,$sublang;
     }
-    else {
-        # Check for cyrl/latn versions
-        foreach my $chars ( qw( latn cyrl ) ) {
-            if ( $lang_charset->{"$lang-$chars"} && ! $lang_seen{"$lang-$chars"} ) {
-                push( @lang_list, "$lang-$chars" );
-                $lang_seen{"$lang-$chars"}++;
-            }
-        }
-    }
+
     # Check for general language
-    if ( $lang =~ /^(.+)-/) {
-        $lang = $1;
+    if ( $lang =~ s/-.+\z// ) {
         if ( $lang_charset->{$lang} ) {
-            push( @lang_list, $lang );
-            $lang_seen{$lang}++;
+            $lang_seen{$lang}++
+                or push @lang_list, $lang;
         }
         # Check for cyrl/latn versions
-        foreach my $chars ( qw( latn cyrl ) ) {
-            if ( $lang_charset->{"$lang-$chars"} && ! $lang_seen{"$lang-$chars"} ) {
-                push( @lang_list, "$lang-$chars" );
-                $lang_seen{"$lang-$chars"}++;
-            }
+        for my $sublang ( "$lang-latn", "$lang-cyrl" ) {
+	    $lang_charset->{$sublang} or next;
+	    $lang_seen{$sublang}++
+	        or push @lang_list, $sublang;
         }
     }
 
@@ -290,11 +312,14 @@ sub get_lang_list {
 }
 
 
-=item C<get_lang_charset>
+=item get_lang_charset($language_tag)
 
-Requires the language code and os (when called in scalar context). Returns
-either the charset for that os, or list of charsets ordered by likeliness,
-depending on calling context. Likeliness order of Windows, Macintosh, Linux.
+=item get_lang_charset($language_tag, $os_name)
+
+Returns the charset(s) used by the supplied language. If an operating system
+name is supplied, treats its character sets preferentially. Dies if no
+language tag is supplied. In scalar context, returns the best matching
+charset. In list context, returns a list of all suitable charsets.
 
 =cut
 
@@ -302,30 +327,29 @@ sub get_lang_charset {
     my $self = shift;
     my $lang = lc shift;
     my $os = lc shift;
-    croak( 'No language passed' ) unless $lang;
-    if ( wantarray ) {
-        return () unless ref $lang_charset->{$lang};
-        my @charsets;
-        @charsets = ( $lang_charset->{$lang}->{$os} ) if $os;
-        foreach my $osleft ( qw( windows macintosh linux ) ) {
-            next if $osleft eq $os;
-            push( @charsets, $lang_charset->{$lang}->{$osleft} );
-        }
-        return @charsets;
+    croak( 'No language tag passed to get_lang_charset()' ) unless $lang;
+    my $group = $lang_charset->{$lang} or return;
+    my @oses = qw(windows macintosh linux);
+    if ( $os ) {
+        croak( "OS $os not recognised" ) unless $os =~ /\A(?:windows|linux|macintosh)\z/;
+	@oses = ($os, grep $_ ne $os, @oses);
     }
-    else {
-        return undef unless ref $lang_charset->{$lang};
-        croak( "OS $os not recognised" ) unless $os =~ /^(windows|linux|macintosh)$/;
-        return $lang_charset->{$lang}->{$os};
+    my @charsets = @$group{@oses};
+    if ( wantarray ) {
+        return @charsets;
+    } else {
+        return $charsets[0];
     }
 }
 
 
-=item C<get_words>
+=item get_words($sample_string)
 
-Requires a sample text string and a charset, optionally the number of words to
-try to match (default 10). Returns a list of words that contain non-ASCII
-characters.
+=item get_words($sample_string, $max_words)
+
+Returns a list of unique words from the supplied sample string which contain
+non-ASCII characters. Returns no more than the specified maximum number
+or words, which defaults to 10. Dies if no sample text is supplied.
 
 =cut
 
@@ -337,11 +361,9 @@ sub get_words {
     croak( 'No sample text passed' ) unless $text;
     my ( @words, %words );
     while ( $text =~ /([\w\x80-\xff]*[\x80-\xff][\w\x80-\xff]*)/g ) {
-        unless ( $words{$1} ) {
-            push( @words, $1 );
-            $words{$1}++;
-        }
-        last if @words > 9;
+        next if $words{$1}++;
+	push @words, $1;
+        last if @words >= $max;
     }#while
     return @words;
 }
