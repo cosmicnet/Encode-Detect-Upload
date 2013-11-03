@@ -132,7 +132,7 @@ sub get_os {
 
 =item get_country($ip_address,$geo_ip_data_filename)
 
-Looks up the user's country from the supplied IP address, or C<$ENV{REMOTE_ADDR}
+Looks up the user's country from the supplied IP address, or C<$ENV{REMOTE_ADDR}>
 by default. Dies if neither of L<IP::Country> or L<Geo::IP> is installed.
 Returns the ISO 2 character country code.
 
