@@ -2,7 +2,8 @@ package Encode::Detect::Upload;
 
 =head1 NAME
 
-Encode::Detect::Upload - Attempt to guess users locale encoding from IP, HTTP_ACCEPT_LANGUAGE and HTTP_USER_AGENT
+Encode::Detect::Upload - Attempt to guess users locale encoding from IP,
+HTTP_ACCEPT_LANGUAGE and HTTP_USER_AGENT
 
 =head1 SYNOPSIS
 
@@ -781,7 +782,8 @@ sub _try_charset {
 
 =head1 RANKING SYSTEM
 
-Unfortunately the heuristics employed by this method aren't straight forward. Several key scenarios are taken into consideration, namely:
+Unfortunately the heuristics employed by this method aren't straight forward.
+Several key scenarios are taken into consideration, namely:
 
 The upload charset is:
 for the language that matches the browsers language settings and OS.
