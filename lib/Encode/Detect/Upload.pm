@@ -116,7 +116,7 @@ sub get_os {
     my $agent = shift;
     $agent ||= $ENV{HTTP_USER_AGENT};
     croak( 'No USER_AGENT string passed, and $ENV{HTTP_USER_AGENT} is empty' )
-      if !$agent && !$self->{die_on_missing};
+      if !$agent && $self->{die_on_missing};
 
     # Basic regexps for matching
     return 'Windows' if $agent =~ /Windows/;
@@ -325,12 +325,14 @@ charset. In list context, returns a list of all suitable charsets.
 
 sub get_lang_charset {
     my $self = shift;
-    my $lang = lc shift;
-    my $os = lc shift;
+    my $lang = shift;
+    my $os = shift;
     croak( 'No language tag passed to get_lang_charset()' ) unless $lang;
+    $lang = lc $lang;
     my $group = $lang_charset->{$lang} or return;
     my @oses = qw(windows macintosh linux);
     if ( $os ) {
+	$os = lc $os;
         croak( "OS $os not recognised" ) unless $os =~ /\A(?:windows|linux|macintosh)\z/;
 	@oses = ($os, grep $_ ne $os, @oses);
     }
@@ -369,7 +371,29 @@ sub get_words {
 }
 
 
-=item C<detect>
+=item detect(%params)
+
+=item detect(\%params)
+
+Determines the encoding of the supplied text. In scalar context, returns the most
+likely charset code. In list context returns an arrayref of charset codes, ordered
+from most to least likely, and a hashref of metadata. Dies if any required
+parameters are not supplied. The following parameters are accepted:
+
+    text         Text to determine the encoding of (required)
+    words        Maximum number of words to examine (default=10)
+    ip           User's IP address (default=$ENV{REMOTE_ADDR})
+    accept_lang  Accept-Language header value (required, default=$ENV{HTTP_ACCEPT_LANGUAGE})
+    inc_linux    Include Linux charsets? (default=0)
+    ranking
+    os           OS name (Windows, Macintosh or Linux)
+    user_agent   User-Agent header value (required if os not supplied,
+                      default=$ENV{HTTP_USER_AGENT})
+    lang         Language tag or arrayref thereof
+    country      Country code or arrayref thereof (required if lang not supplied)
+    country_extra
+    lang_extra
+
 
 Requires a sample text string. Can optionally be passed the number of words to
 try to match (default 10), the users IP, the users OS, the user_agent string,
@@ -484,7 +508,7 @@ sub detect {
 
     # Get the OS
     unless ( $conf{os} ) {
-        $conf{os} = $self->get_os( $conf{os} );
+        $conf{os} = $self->get_os( $conf{user_agent} );
     }
     # Default to windows if we still don't have an OS
     $conf{os} = 'windows' unless $conf{os};
@@ -493,168 +517,7 @@ sub detect {
     $conf{inc_linux} = 1 if $conf{os} eq 'linux';
 
     # Get the list of language tags
-    my %country_meta;
-    my %lang_meta;
-    if ( $conf{lang} ) {
-        $conf{lang} = [ $conf{lang} ] unless ref $conf{lang};
-        $conf{lang} = [ map { lc $_ } @{ $conf{lang} } ];
-    }
-    else {
-        ## Get language list from conf with meta data
-        # Start with country list
-        my @country_list;
-        if ( $conf{country} ) {
-            @country_list = ref $conf{country} ? @{ $conf{country} } : ( $conf{country} );
-            @country_list = map { lc $_ } @country_list;
-        }
-        else {
-            # See if we have IP's to lookup countries for, we may have several
-            if ( $conf{ip} ) {
-                $conf{ip} = [ $conf{ip} ] unless ref $conf{ip};
-                foreach my $ip ( @{ $conf{ip} } ) {
-                    my $country = $self->get_country( $ip );
-                    next unless $country;
-                    if ( $country_meta{$country} ) {
-                        push( @{ $country_meta{$country}->{ip} }, $ip );
-                    }
-                    else {
-                        push( @country_list, $country );
-                        $country_meta{$country} = {
-                            ip => [$ip],
-                        };
-                    }
-                }#foreach
-            }#if
-            # Are there extra countries to add to the start or end of the list
-            if ( ref $conf{country_extra} ) {
-                foreach my $position ( qw( end start ) ) {
-                    if ( $conf{country_extra}->{$position} ) {
-                        $conf{country_extra}->{$position} = [ $conf{country_extra}->{$position} ] unless ref $conf{country_extra}->{$position};
-                        $conf{country_extra}->{$position} = [ map { lc $_ } @{ $conf{country_extra}->{$position} } ];
-                        foreach my $country ( @{ $conf{country_extra}->{$position} } ) {
-                            # Check if it's already in the list, in which case remove
-                            if ( $country_meta{$country} ) {
-                                $country_meta{$country}->{extra} ||= [];
-                                push( @{ $country_meta{$country}->{extra} },  $position );
-                                # If adding to the end, leave in current position, only move to start
-                                @country_list = grep { $_ ne $country } @country_list if $position eq 'start';
-                            }
-                            else {
-                                $country_meta{$country} = {
-                                    extra => [ $position ],
-                                };
-                            }
-                        }
-                    }#if
-                }#foreach
-                # Add to front/back of list
-                unshift( @country_list, @{ $conf{country_extra}->{start} } ) if ref $conf{country_extra}->{start};
-                push( @country_list, @{ $conf{country_extra}->{end} } ) if ref $conf{country_extra}->{end};
-            }#if
-        }#else
-        # Get lang tags from countries
-        my @lang_country;
-        my %country_seen;
-        foreach my $country ( @country_list ) {
-            $country_meta{$country}->{name} = $self->get_country_name( $country );
-            my @lang_list = $self->get_country_lang( $country );
-            foreach my $lang ( @lang_list ) {
-                next if $country_seen{$lang};
-                push( @lang_country, $lang );
-                $country_seen{$lang}++;
-            }
-        }#foreach
-
-        # Now lang list from accept_langs
-        my @lang_accept;
-        my %accept_seen;
-        if ( $conf{accept_lang} ) {
-            $conf{accept_lang} = [ $conf{accept_lang} ] unless ref $conf{accept_lang};
-            foreach my $accept_lang ( @{ $conf{accept_lang} } ) {
-                my @lang_list = $self->get_accept_lang( $accept_lang );
-                foreach my $lang ( @lang_list ) {
-                    next if $accept_seen{$lang};
-                    push( @lang_accept, $lang );
-                    $accept_seen{$lang}++;
-                }
-            }
-        }
-        # Are there extra lang tags to add to the start or end of the list
-        my %extra_seen;
-        my %extra_list;
-        if ( ref $conf{lang_extra} ) {
-            foreach my $position ( qw( end start ) ) {
-                $extra_list{$position} = [];
-                if ( $conf{lang_extra}->{$position} ) {
-                    $conf{lang_extra}->{$position} = [ $conf{lang_extra}->{$position} ] unless ref $conf{lang_extra}->{$position};
-                    $conf{lang_extra}->{$position} = [ map { lc $_ } @{ $conf{lang_extra}->{$position} } ];
-                    $extra_list{$position} = $conf{lang_extra}->{$position};
-                    $extra_seen{$position} = { map { $_ => 1 } @{ $conf{lang_extra}->{$position} } };
-                }
-            }#foreach
-        }#if
-        ## Rank languages based on order and appearance in both lists
-        # Which lists they appear in
-        foreach my $lang ( @lang_accept, @lang_country, @{ $extra_list{start} }, @{ $extra_list{end} } ) {
-            next if $lang_meta{$lang};
-            $lang_meta{$lang} = {
-                both    => $accept_seen{$lang} && $country_seen{$lang} ? 1 : 0,
-                accept  => $accept_seen{$lang} || 0,
-                country => $country_seen{$lang} || 0,
-                start   => $extra_seen{start}->{$lang} || 0,
-                end     => $extra_seen{end}->{$lang} || 0,
-                name    => $self->get_lang_name($lang),
-            };
-        }#foreach
-        ## Rank position
-        # Extra start will go first
-        my $pos = 1;
-        foreach my $lang ( @{ $extra_list{start} } ) {
-            next if $lang_meta{$lang}->{pos};
-            $lang_meta{$lang}->{pos} = $pos;
-            $pos++;
-        }#foreach
-        # Then sequence
-        my %lang_hash = (
-            A => \@lang_accept,
-            C => \@lang_country,
-        );
-        $rank{lang}->{start} ||= $rank{lang}->{repeat};
-        my @sequence = split( //, $rank{lang}->{start} );
-        while ( my $type = shift @sequence ) {
-            last unless @{ $lang_hash{A} } || @{ $lang_hash{C} };
-            push( @sequence, split( //, $rank{lang}->{repeat} ) ) unless @sequence;
-            while ( my $lang = shift @{ $lang_hash{$type} } ) {
-                if ( $lang_meta{$lang}->{pos} ) {
-                    next;
-                }
-                else {
-                    $lang_meta{$lang}->{pos} = $pos;
-                    $pos++;
-                    last;
-                }
-            }#while
-        }#while
-        # Extra end added to the end
-        foreach my $lang ( @{ $extra_list{end} } ) {
-            next if $lang_meta{$lang}->{pos};
-            $lang_meta{$lang}->{pos} = $pos;
-            $pos++;
-        }#foreach
-        # Prefer languages that appear in both?
-        if ( $rank{lang_both} ) {
-            $conf{lang} = [ sort {
-                $lang_meta{$b}->{start} <=> $lang_meta{$a}->{start} ||
-                $lang_meta{$b}->{both} <=> $lang_meta{$a}->{both} ||
-                $lang_meta{$a}->{pos} <=> $lang_meta{$b}->{pos}
-                } keys %lang_meta ];
-        }
-        else {
-            $conf{lang} = [ sort {
-                $lang_meta{$a}->{pos} <=> $lang_meta{$b}->{pos}
-                } keys %lang_meta ];
-        }
-    }#else
+    my($country_meta, $lang_meta) = $self->_detect_get_langs(\%conf,\%rank);
 
     # Get the related charsets and meta data
     my @words = $self->get_words( $conf{text}, $conf{words} );
@@ -665,32 +528,7 @@ sub detect {
     );
     my %char_meta;
     my %char_error;
-    foreach my $lang ( @{ $conf{lang} } ) {
-        my @charsets = $self->get_lang_charset( $lang );
-        next unless @charsets;
-        my @os_list = ( 'W', 'M', 'L' );
-        pop @os_list unless $conf{inc_linux};
-        for ( my $i=0; $i <= $#os_list; $i++ ) {
-            next if $char_error{ $charsets[$i] };
-            if ( $char_meta{ $charsets[$i] } ) {
-                push( @{ $char_meta{$charsets[$i]}->{lang} }, $lang );
-            }
-            else {
-                # Test charset parses
-                my $charset_encode = _try_charset( $charsets[$i], $conf{text} );
-                if ( $charset_encode ) {
-                    push( @{ $char_hash{ $os_list[$i] } }, $charsets[$i] );
-                    $char_meta{ $charsets[$i] } = {
-                        lang => [ $lang ],
-                        words => [ map { decode( $charset_encode, $_ ) } @words ],
-                    };
-                }
-                else {
-                    $char_error{ $charsets[$i] }++;
-                }
-            }#else
-        }#for
-    }#foreach
+    $self->_detect_check_langs(\%char_meta,\%char_hash,\%char_error,\%conf,\@words);
 
     # Does this parse as UTF-8?
     my $is_utf8 = 1;
@@ -778,8 +616,8 @@ sub detect {
     if ( wantarray ) {
         my %meta = (
             charsets => \%char_meta,
-            lang     => \%lang_meta,
-            country  => \%country_meta,
+            lang     => $lang_meta,
+            country  => $country_meta,
             error    => [ keys %char_error ],
         );
         return ( \@charsets, \%meta);
@@ -789,6 +627,212 @@ sub detect {
     }
 }#sub
 
+sub _detect_get_langs{
+    my $self = shift;
+    my $conf = shift;
+    my $rank = shift;
+
+    my %country_meta;
+    my %lang_meta;
+    if ( $conf->{lang} ) {
+        $conf->{lang} = [ $conf->{lang} ] unless ref $conf->{lang};
+        $conf->{lang} = [ map { lc $_ } @{ $conf->{lang} } ];
+    }
+    else {
+        ## Get language list from conf with meta data
+        # Start with country list
+        my @country_list;
+        if ( $conf->{country} ) {
+            @country_list = ref $conf->{country} ? @{ $conf->{country} } : ( $conf->{country} );
+            @country_list = map { lc $_ } @country_list;
+        }
+        else {
+            # See if we have IP's to lookup countries for, we may have several
+            if ( $conf->{ip} && ($has_ipcountry || $has_geoip) ) {
+                $conf->{ip} = [ $conf->{ip} ] unless ref $conf->{ip};
+                foreach my $ip ( @{ $conf->{ip} } ) {
+                    my $country = $self->get_country( $ip );
+                    next unless $country;
+                    if ( $country_meta{$country} ) {
+                        push( @{ $country_meta{$country}->{ip} }, $ip );
+                    }
+                    else {
+                        push( @country_list, $country );
+                        $country_meta{$country} = {
+                            ip => [$ip],
+                        };
+                    }
+                }#foreach
+            }#if
+            # Are there extra countries to add to the start or end of the list
+            if ( ref $conf->{country_extra} ) {
+                foreach my $position ( qw( end start ) ) {
+                    if ( $conf->{country_extra}->{$position} ) {
+                        $conf->{country_extra}->{$position} = [ $conf->{country_extra}->{$position} ] unless ref $conf->{country_extra}->{$position};
+                        $conf->{country_extra}->{$position} = [ map { lc $_ } @{ $conf->{country_extra}->{$position} } ];
+                        foreach my $country ( @{ $conf->{country_extra}->{$position} } ) {
+                            # Check if it's already in the list, in which case remove
+                            if ( $country_meta{$country} ) {
+                                $country_meta{$country}->{extra} ||= [];
+                                push( @{ $country_meta{$country}->{extra} },  $position );
+                                # If adding to the end, leave in current position, only move to start
+                                @country_list = grep { $_ ne $country } @country_list if $position eq 'start';
+                            }
+                            else {
+                                $country_meta{$country} = {
+                                    extra => [ $position ],
+                                };
+                            }
+                        }
+                    }#if
+                }#foreach
+                # Add to front/back of list
+                unshift( @country_list, @{ $conf->{country_extra}->{start} } ) if ref $conf->{country_extra}->{start};
+                push( @country_list, @{ $conf->{country_extra}->{end} } ) if ref $conf->{country_extra}->{end};
+            }#if
+        }#else
+        # Get lang tags from countries
+        my @lang_country;
+        my %country_seen;
+        foreach my $country ( @country_list ) {
+            $country_meta{$country}->{name} = $self->get_country_name( $country );
+            my @lang_list = $self->get_country_lang( $country );
+            foreach my $lang ( @lang_list ) {
+                next if $country_seen{$lang};
+                push( @lang_country, $lang );
+                $country_seen{$lang}++;
+            }
+        }#foreach
+
+        # Now lang list from accept_langs
+        my @lang_accept;
+        my %accept_seen;
+        if ( $conf->{accept_lang} ) {
+            $conf->{accept_lang} = [ $conf->{accept_lang} ] unless ref $conf->{accept_lang};
+            foreach my $accept_lang ( @{ $conf->{accept_lang} } ) {
+                my @lang_list = $self->get_accept_lang( $accept_lang );
+                foreach my $lang ( @lang_list ) {
+                    next if $accept_seen{$lang};
+                    push( @lang_accept, $lang );
+                    $accept_seen{$lang}++;
+                }
+            }
+        }
+        # Are there extra lang tags to add to the start or end of the list
+        my %extra_seen;
+        my %extra_list;
+        if ( ref $conf->{lang_extra} ) {
+            foreach my $position ( qw( end start ) ) {
+                $extra_list{$position} = [];
+                if ( $conf->{lang_extra}->{$position} ) {
+                    $conf->{lang_extra}->{$position} = [ $conf->{lang_extra}->{$position} ] unless ref $conf->{lang_extra}->{$position};
+                    $conf->{lang_extra}->{$position} = [ map { lc $_ } @{ $conf->{lang_extra}->{$position} } ];
+                    $extra_list{$position} = $conf->{lang_extra}->{$position};
+                    $extra_seen{$position} = { map { $_ => 1 } @{ $conf->{lang_extra}->{$position} } };
+                }
+            }#foreach
+        }#if
+        ## Rank languages based on order and appearance in both lists
+        # Which lists they appear in
+        foreach my $lang ( @lang_accept, @lang_country, @{ $extra_list{start} }, @{ $extra_list{end} } ) {
+            next if $lang_meta{$lang};
+            $lang_meta{$lang} = {
+                both    => $accept_seen{$lang} && $country_seen{$lang} ? 1 : 0,
+                accept  => $accept_seen{$lang} || 0,
+                country => $country_seen{$lang} || 0,
+                start   => $extra_seen{start}->{$lang} || 0,
+                end     => $extra_seen{end}->{$lang} || 0,
+                name    => $self->get_lang_name($lang),
+            };
+        }#foreach
+        ## Rank position
+        # Extra start will go first
+        my $pos = 1;
+        foreach my $lang ( @{ $extra_list{start} } ) {
+            next if $lang_meta{$lang}->{pos};
+            $lang_meta{$lang}->{pos} = $pos;
+            $pos++;
+        }#foreach
+        # Then sequence
+        my %lang_hash = (
+            A => \@lang_accept,
+            C => \@lang_country,
+        );
+        $rank->{lang}->{start} ||= $rank->{lang}->{repeat};
+        my @sequence = split( //, $rank->{lang}->{start} );
+        while ( my $type = shift @sequence ) {
+            last unless @{ $lang_hash{A} } || @{ $lang_hash{C} };
+            push( @sequence, split( //, $rank->{lang}->{repeat} ) ) unless @sequence;
+            while ( my $lang = shift @{ $lang_hash{$type} } ) {
+                if ( $lang_meta{$lang}->{pos} ) {
+                    next;
+                }
+                else {
+                    $lang_meta{$lang}->{pos} = $pos;
+                    $pos++;
+                    last;
+                }
+            }#while
+        }#while
+        # Extra end added to the end
+        foreach my $lang ( @{ $extra_list{end} } ) {
+            next if $lang_meta{$lang}->{pos};
+            $lang_meta{$lang}->{pos} = $pos;
+            $pos++;
+        }#foreach
+        # Prefer languages that appear in both?
+        if ( $rank->{lang_both} ) {
+            $conf->{lang} = [ sort {
+                $lang_meta{$b}->{start} <=> $lang_meta{$a}->{start} ||
+                $lang_meta{$b}->{both} <=> $lang_meta{$a}->{both} ||
+                $lang_meta{$a}->{pos} <=> $lang_meta{$b}->{pos}
+                } keys %lang_meta ];
+        }
+        else {
+            $conf->{lang} = [ sort {
+                $lang_meta{$a}->{pos} <=> $lang_meta{$b}->{pos}
+                } keys %lang_meta ];
+        }
+    }#else
+
+    return (\%country_meta,\%lang_meta);
+}
+
+sub _detect_check_langs{
+    my $self = shift;
+    my $char_meta = shift;
+    my $char_hash = shift;
+    my $char_error = shift;
+    my $conf = shift;
+    my $words = shift;
+    my @os_list = ('W','M',$conf->{inc_linux} ? 'L' : ());
+    foreach my $lang ( @{ $conf->{lang} } ) {
+        my @charsets = $self->get_lang_charset( $lang );
+        next unless @charsets;
+        for ( my $i=0; $i <= $#os_list; $i++ ) {
+	    my $charset = $charsets[$i];
+	    my $os = $os_list[$i];
+            next if $char_error->{ $charset };
+            if ( $char_meta->{ $charset } ) {
+                push( @{ $char_meta->{$charset}->{lang} }, $lang );
+            }
+            else {
+                # Test charset parses
+                my $charset_encode = _try_charset( $charset, $conf->{text} );
+                if ( $charset_encode ) {
+                    push( @{ $char_hash->{ $os } }, $charset );
+                    $char_meta->{ $charset } = {
+                        lang => [ $lang ],
+                        words => [ map { decode( $charset_encode, $_ ) } @$words ],
+                    };
+                }
+                else {
+                    $char_error->{ $charset }++;
+                }
+            }#else
+        }#for
+    }#foreach
+}
 
 sub _try_charset {
     my ( $charset, $text ) = @_;
@@ -936,17 +980,10 @@ L<Encode::Detect::Detector>, L<Encode>, L<Geo::IP>, L<IP::Country>
 Make default between Latin and Cyrillic based on popularity in language
 Write some tests
 Rank regions differently?
+Generalize environment examination, defaults only at detect() or confgurable thru the detector object itself
 
 =cut
 
-
-sub any {
-    my ( $var, $list ) = @_;
-    foreach (@$list) {
-        return 1 if $var eq $_;
-    }#foreach
-    return 0;
-}#sub
 
 
 1;
