@@ -144,12 +144,12 @@ sub get_country {
     my $ip = shift;
     $ip ||= $ENV{REMOTE_ADDR};
     croak( 'No IP passed, and $ENV{REMOTE_ADDR} is empty' ) unless $ip;
-    $ip=~/\A(?:0|[0-9]\d*)(?:\.(?:0|[1-9]\d*)){3}\z/ && !grep $_>255,split /\./,$ip
+    $ip=~/\A(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){3}\z/ && !grep $_>255,split /\./,$ip
       or croak( "$ip is not a valid IP" );
 
     # Use the available IP -> Country DB
     if ( $has_ipcountry ) {
-        my $reg = IP::Country->new(); # XXX Cache?
+        my $reg = IP::Country->new(); # TODO Cache?
         my $country = $reg->inet_atocc($ip);
         $country = undef if $country eq '**';
         return lc $country;
@@ -184,9 +184,9 @@ by dashes.
 
 sub get_country_lang {
     my $self = shift;
-    my $country_code = lc shift;
+    my $country_code = shift;
     croak( 'No country passed' ) unless defined $country_code;
-    my $country = $country_lang->{$country_code}
+    my $country = $country_lang->{lc $country_code}
       or return;
     if ( wantarray ) {
         return @{ $country->{languages} };
@@ -206,9 +206,9 @@ Dies if no country is specified.
 
 sub get_country_name {
     my $self = shift;
-    my $country_code = lc shift;
+    my $country_code = shift;
     croak( 'No country passed' ) unless defined $country_code;
-    my $country = $country_lang->{$country_code}
+    my $country = $country_lang->{lc $country_code}
       or return undef;
     return $country->{name};
 }
@@ -235,8 +235,8 @@ sub get_accept_lang {
     # We are going to ignore q and assume the order is accurate... might not be the best policy
     my @langs;
     my %seen;
-    foreach my $language ( split(/ *, */, $accept) ) {
-        my ( $lang, $q ) = split(/ *; */, $language);
+    foreach my $language ( split(/\s*,\s*/, $accept) ) {
+        my ( $lang, $q ) = split(/\s*;\s*/, $language);
         $lang = lc $lang;
         if ( wantarray ) {
             next if $seen{$lang}; # filter out any duplicates
@@ -260,8 +260,9 @@ ISO-639 language code. Dies if no language code is supplied.
 
 sub get_lang_name {
     my $self = shift;
-    my $lang_code = lc shift;
+    my $lang_code = shift;
     croak( 'No language passed' ) unless defined $lang_code;
+    $lang_code = lc $lang_code;
     my $language = $lang_charset->{$lang_code}
       or return undef;
     return $language->{name};
@@ -281,8 +282,9 @@ Dies is no language tag is supplied.
 
 sub get_lang_list {
     my $self = shift;
-    my $lang = lc shift;
+    my $lang = shift;
     croak( 'No language passed' ) unless defined $lang;
+    $lang = lc $lang;
     my @lang_list = ($lang);
     my %lang_seen = ( $lang => 1 );
 
@@ -380,19 +382,19 @@ likely charset code. In list context returns an arrayref of charset codes, order
 from most to least likely, and a hashref of metadata. Dies if any required
 parameters are not supplied. The following parameters are accepted:
 
-    text         Text to determine the encoding of (required)
-    words        Maximum number of words to examine (default=10)
-    ip           User's IP address (default=$ENV{REMOTE_ADDR})
-    accept_lang  Accept-Language header value (required, default=$ENV{HTTP_ACCEPT_LANGUAGE})
-    inc_linux    Include Linux charsets? (default=0)
-    ranking
-    os           OS name (Windows, Macintosh or Linux)
-    user_agent   User-Agent header value (required if os not supplied,
+    text          Text to determine the encoding of (required)
+    words         Maximum number of words to examine (default=10)
+    ip            User's IP address (default=$ENV{REMOTE_ADDR})
+    accept_lang   Accept-Language header value (required, default=$ENV{HTTP_ACCEPT_LANGUAGE})
+    inc_linux     Include Linux charsets? (default=0)
+    ranking       TODO document
+    os            OS name (Windows, Macintosh or Linux)
+    user_agent    User-Agent header value (required if os not supplied,
                       default=$ENV{HTTP_USER_AGENT})
-    lang         Language tag or arrayref thereof
-    country      Country code or arrayref thereof (required if lang not supplied)
-    country_extra
-    lang_extra
+    lang          Language tag or arrayref thereof
+    country       Country code or arrayref thereof (required if lang not supplied)
+    country_extra TODO document
+    lang_extra    TODO document
 
 
 Requires a sample text string. Can optionally be passed the number of words to

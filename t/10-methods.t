@@ -43,13 +43,13 @@ subtest 'get_country_lang', sub {
     is( $detector->get_country_lang('gb'), 'en-gb', 'British English (correct English)' );
     my @lang_ls = $detector->get_country_lang('gb');
     is_deeply( \@lang_ls, [ 'en-gb', 'cy-gb', 'gd' ], 'Language list' );
-#    throws_ok( sub { $detector->get_country_lang() }, 'No country passed', 'No country passed' );
+    throws_ok( sub { $detector->get_country_lang() }, qr/No country passed/, 'No country passed' );
 };
 
 note( 'get_country_name' );
 subtest 'get_country_name', sub {
     is( $detector->get_country_name('gb'), 'United Kingdom', 'United Kingdom' );
-#    throws_ok( sub { $detector->get_country_name() }, 'No country passed', 'No country passed' );
+    throws_ok( sub { $detector->get_country_name() }, qr/No country passed/, 'No country passed' );
 };
 
 note( 'get_accept_lang' );
@@ -66,7 +66,7 @@ note( 'get_lang_name' );
 subtest 'get_lang_name', sub {
     is( $detector->get_lang_name('en-gb'), 'English - Great Britain', 'United Kingdom' );
     is( $detector->get_lang_name('funny-language'), undef, 'Unknown language' );
-#    throws_ok( sub { $detector->get_lang_name() }, 'No language passed', 'No language passed' );
+    throws_ok( sub { $detector->get_lang_name() }, qr/No language passed/, 'No language passed' );
 };
 
 note( 'get_lang_list' );
@@ -75,7 +75,7 @@ subtest 'get_lang_list', sub {
     is_deeply( \@lang_ls, [ 'en-gb', 'en' ], 'Language list' );
     @lang_ls = $detector->get_lang_list('az');
     is_deeply( \@lang_ls, [ 'az', 'az-latn', 'az-cyrl' ], 'Language list' );
-#    throws_ok( sub { $detector->get_lang_list() }, 'No language passed', 'No language passed' );
+    throws_ok( sub { $detector->get_lang_list() }, qr/No language passed/, 'No language passed' );
 };
 
 note( 'get_lang_charset' );
@@ -83,14 +83,14 @@ subtest 'get_lang_charset', sub {
     is( $detector->get_lang_charset('en-gb','windows'), 'windows-1252', 'Charset' );
     my @char_ls = $detector->get_lang_charset('en-gb');
     is_deeply( \@char_ls, [ 'windows-1252', 'x-mac-roman', 'iso-8859-1' ], 'Charset list' );
-#    throws_ok( sub { $detector->get_lang_charset() }, 'No language passed', 'No language passed' );
+    throws_ok( sub { $detector->get_lang_charset() }, qr/No language tag passed/, 'No language tag passed' );
 };
 
 note( 'get_words' );
 subtest 'get_words', sub {
     my @words = $detector->get_words( "The Magazine Mari\x{e9} Cl\x{e2}re" );
     is_deeply( \@words, [ "Mari\x{e9}", "Cl\x{e2}re" ], 'Non ASCII words' );
-#    throws_ok( sub { $detector->get_words() }, 'No sample text passed', 'No sample text passed' );
+    throws_ok( sub { $detector->get_words() }, qr/No sample text passed/, 'No sample text passed' );
 };
 
 

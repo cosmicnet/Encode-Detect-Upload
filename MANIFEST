@@ -1,13 +1,14 @@
 Changes
 lib/Encode/Detect/Upload.pm
 lib/Encode/Detect/Upload/Data.pm
-Makefile
 Makefile.PL
 MANIFEST			This list of files
 MANIFEST.SKIP
 MYMETA.yml
 README
 t/00-load.t
+t/10-methods.t
+t/20-detect.t
 t/boilerplate.t
 t/manifest.t
 t/pod-coverage.t
