@@ -1,5 +1,7 @@
 package Encode::Detect::Upload::Data;
 
+our $VERSION=0.02;
+
 =head1 NAME
 
 Encode::Detect::Upload::Data - structures mapping countries -> languages -> charsets

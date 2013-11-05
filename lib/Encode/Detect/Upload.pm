@@ -1,6 +1,8 @@
 package Encode::Detect::Upload;
 
-our $VERSION=0.01;
+our $VERSION=0.02;
+
+=encoding utf8
 
 =head1 NAME
 
@@ -152,7 +154,7 @@ sub get_country {
         my $reg = IP::Country->new(); # TODO Cache?
         my $country = $reg->inet_atocc($ip);
         $country = undef if $country eq '**';
-        return lc $country;
+        return defined $country ? lc $country : $country;
     }
     if ( $has_geoip ) {
         my $gi;
@@ -500,7 +502,10 @@ sub detect {
         mozilla_insert => 3,
     );
     if ( $conf{ranking} ) {
-        %rank = %{ $conf{ranking} };
+        %rank = (
+			%rank,
+			%{ $conf{ranking} }
+		);
         # Validate ranking sequences
         croak( 'Missing language ranking sequence' ) unless $rank{lang}->{repeat};
         foreach my $os ( qw( windows macintosh linux ) ) {
@@ -571,7 +576,8 @@ sub detect {
     # Can we see what Mozilla detection thinks?
     my $mozilla;
     if ( $has_detect ) {
-        $mozilla = lc Encode::Detect::Detector::detect( $conf{text} );
+        $mozilla = Encode::Detect::Detector::detect( $conf{text} );
+		$mozilla = lc $mozilla if defined $mozilla;
         if ( $mozilla ) {
             # Check charset can decode
             my $charset_encode = _try_charset( $mozilla, $conf{text} );
@@ -951,9 +957,11 @@ it's not already in the list.
 This is released under the Artistic
 License. See L<perlartistic>.
 
-=head1 AUTHOR
+=head1 AUTHORS
 
 Lyle Hopkins - L<http://www.cosmicperl.com/>
+
+Peter Haworth - L<http://pmh1wheel.org/>
 
 Development kindly sponsored by - L<http://www.greenrope.com/>
 

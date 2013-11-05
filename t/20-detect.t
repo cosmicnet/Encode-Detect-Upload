@@ -26,9 +26,16 @@ subtest 'simple',sub{
     $charset = $detector->detect(text => "\xd5\xee\xf0\xee\xf8");
     is($charset, 'windows-1252');
 
-    $charset = $detector->detect(text => "\xd5\xee\xf0\xee\xf8", lang => 'ru');
+	# If the Mozilla library is available it will affect the sequence by default
+	# Adjust the ranking object to prevent this and keep things consistent for different
+	# testing setups.
+	my %rank = (
+		mozilla_move => 0,
+	);
+
+    $charset = $detector->detect(text => "\xd5\xee\xf0\xee\xf8", lang => 'ru', ranking => \%rank);
     is($charset, 'windows-1251');
 
-    my($charsets,$meta) = $detector->detect(text => "\xd5\xee\xf0\xee\xf8", lang => 'ru');
+    my($charsets,$meta) = $detector->detect(text => "\xd5\xee\xf0\xee\xf8", lang => 'ru', ranking => \%rank);
     is_deeply($charsets, ['windows-1251','x-mac-cyrillic']);
 };
